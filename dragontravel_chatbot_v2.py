@@ -62,6 +62,7 @@ airports = {
     "MKE": {"name": "Milwaukee Mitchell", "code": "MKE"},
     "OKC": {"name": "Oklahoma City", "code": "OKC"},
     "OMA": {"name": "Omaha Eppley", "code": "OMA"},
+    "GYE": {"name": "Guayaquil", "code": "GYE"},
 }
 
 # Airlines for demonstration
@@ -114,6 +115,7 @@ class DragonTravelBot:
             "email": None
         }
         self.current_state = "greeting"
+        self.language_set = False  # Flag para indicar si un lenguaje ha sido detectado
         self.detected_language = "en"  # Default language
         self.nlp = self.nlp_en  # Default NLP pipeline
         self.responses = self.get_responses("en")
@@ -143,43 +145,43 @@ class DragonTravelBot:
     #         print(f"Language detection error: {e}")
     #         return "en"  # Default to English on error
     def detect_language(self, text):
-      """Detect the language of the input text using langdetect"""
-      try:
-          lang_probs = detect_langs(text)
-          lang_detected = max(lang_probs, key=lambda x: x.prob)  # Idioma con mayor probabilidad
-          lang_code = lang_detected.lang
-          confidence = lang_detected.prob
-          
-          print(f"Detected: {lang_code} (Confidence: {confidence:.2f}) - Full: {lang_probs}")
+        """Detect the language of the input text using langdetect"""
+        try:
+            lang_probs = detect_langs(text)
+            lang_detected = max(lang_probs, key=lambda x: x.prob)  # Idioma con mayor probabilidad
+            lang_code = lang_detected.lang
+            confidence = lang_detected.prob
+            
+            print(f"\t DEBUG: Detected: {lang_code} (Confidence: {confidence:.2f}) - Full: {lang_probs}")
 
-          # Si el idioma detectado es confiable (>70%), lo usamos
-          if confidence > 0.7:
-              if lang_code == "es":
-                  self.detected_language = "es"
-                  self.nlp = self.nlp_es
-              elif lang_code == "en":
-                  self.detected_language = "en"
-                  self.nlp = self.nlp_en
-              else:
-                  # Si no es español ni inglés, asumimos inglés como fallback
-                  self.detected_language = "en"
-                  self.nlp = self.nlp_en
+            # Si el idioma detectado es confiable (>70%), lo usamos
+            if confidence > 0.7:
+                if lang_code == "es":
+                    self.detected_language = "es"
+                    self.nlp = self.nlp_es
+                # elif lang_code == "en":
+                #     self.detected_language = "en"
+                #     self.nlp = self.nlp_en
+                else:
+                    # Si no es español ni inglés, asumimos inglés como fallback
+                    self.detected_language = "en"
+                    self.nlp = self.nlp_en
 
-          # Manejo de Spanglish: si detecta inglés y español con valores similares
-          elif "en" in [l.lang for l in lang_probs] and "es" in [l.lang for l in lang_probs]:
-              self.detected_language = "es" if "es" in [l.lang for l in lang_probs if l.prob > 0.4] else "en"
-              self.nlp = self.nlp_es if self.detected_language == "es" else self.nlp_en
+            # Manejo de Spanglish: si detecta inglés y español con valores similares
+            elif "en" in [l.lang for l in lang_probs] and "es" in [l.lang for l in lang_probs]:
+                self.detected_language = "es" if "es" in [l.lang for l in lang_probs if l.prob > 0.4] else "en"
+                self.nlp = self.nlp_es if self.detected_language == "es" else self.nlp_en
 
-          else:
-              self.detected_language = "en"  # Fallback
-              self.nlp = self.nlp_en
+            else:
+                self.detected_language = "en"  # Fallback
+                self.nlp = self.nlp_en
 
-          self.responses = self.get_responses(self.detected_language)
-          return self.detected_language
+            self.responses = self.get_responses(self.detected_language)
+            return self.detected_language
 
-      except Exception as e:
-          print(f"Language detection error: {e}")
-          return "en"  # Default a inglés en caso de error
+        except Exception as e:
+            print(f"Language detection error: {e}")
+            return "en"  # Default a inglés en caso de error
 
     def simulate_intent_classifier(self, text):
         """Simulate an intent classifier for the prototype
@@ -204,8 +206,23 @@ class DragonTravelBot:
         if not message.strip():
             return self.responses["empty_message"]
         
-        # Detect language
-        self.detect_language(message)
+        # Detectar idioma
+        if not self.language_set:
+            self.detect_language(message)
+            self.language_set = True
+        
+        # comandos para cambiar el idioma
+        if message.strip().lower() == "switch to english" or message.strip().lower() == "english please":
+            self.detected_language = "en"
+            self.nlp = self.nlp_en
+            self.responses = self.get_responses("en")
+            return "Switching to English. How can I help you with your travel plans?"
+            
+        if message.strip().lower() == "cambiar a español" or message.strip().lower() == "español por favor":
+            self.detected_language = "es"
+            self.nlp = self.nlp_es
+            self.responses = self.get_responses("es")
+            return "Cambiando a español. ¿Cómo puedo ayudarte con tus planes de viaje?"
         
         # Process the message with the NLP pipeline
         doc = self.nlp(message)
