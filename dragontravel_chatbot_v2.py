@@ -216,13 +216,13 @@ class DragonTravelBot:
             self.detected_language = "en"
             self.nlp = self.nlp_en
             self.responses = self.get_responses("en")
-            return "Switching to English. How can I help you with your travel plans?"
+            print("Switching to English. How can I help you with your travel plans?")
             
         if message.strip().lower() == "cambiar a español" or message.strip().lower() == "español por favor":
             self.detected_language = "es"
             self.nlp = self.nlp_es
             self.responses = self.get_responses("es")
-            return "Cambiando a español. ¿Cómo puedo ayudarte con tus planes de viaje?"
+            print("Cambiando a español. ¿Cómo puedo ayudarte con tus planes de viaje?")
         
         # Process the message with the NLP pipeline
         doc = self.nlp(message)
