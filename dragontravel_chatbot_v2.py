@@ -727,9 +727,9 @@ class DragonTravelBot:
         message = message.lower()
         
         # English and Spanish seat class patterns
-        if any(term in message for term in ["economy", "coach", "economica", "económica", "turista"]):
+        if any(term in message for term in ["economy", "coach", "economica", "económica","economico" , "turista"]):
             return "Economy"
-        elif any(term in message for term in ["business", "ejecutiva", "negocios"]):
+        elif any(term in message for term in ["business", "ejecutiva", "ejecutivo" , "negocios"]):
             return "Business"
         elif any(term in message for term in ["first", "primera"]):
             return "First Class"
