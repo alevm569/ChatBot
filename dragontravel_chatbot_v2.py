@@ -6,6 +6,12 @@ from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassifica
 import spacy
 from langdetect import detect, DetectorFactory, detect_langs
 import dateparser
+import unicodedata
+
+# Importar los módulos de reconocimiento de voz
+import whisper
+from IPython.display import Audio, display
+from gtts import gTTS
 
 DetectorFactory.seed = 0 
 
@@ -152,8 +158,6 @@ class DragonTravelBot:
             lang_code = lang_detected.lang
             confidence = lang_detected.prob
             
-            print(f"\t DEBUG: Detected: {lang_code} (Confidence: {confidence:.2f}) - Full: {lang_probs}")
-
             # Si el idioma detectado es confiable (>70%), lo usamos
             if confidence > 0.7:
                 if lang_code == "es":
@@ -236,6 +240,9 @@ class DragonTravelBot:
                 self.booking["departure_airport"] = extracted_info["departure"]
                 self.booking["arrival_airport"] = extracted_info["destination"]
                 
+                if extracted_info.get("passengers"):  
+                  self.booking["num_passengers"] = extracted_info["passengers"]
+
                 if extracted_info.get("date"):
                     self.booking["departure_datetime"] = extracted_info["date"]
                     self.current_state = "collect_trip_type"
@@ -281,16 +288,22 @@ class DragonTravelBot:
                 return self.responses["arrival_not_understood"]
                 
         elif self.current_state == "collect_date":
-            date = self.extract_date(doc, message)
-            if date:
-                self.booking["departure_datetime"] = date
-                self.current_state = "collect_trip_type"
-                return self.responses["date_collected_only"].format(
-                    date=date.strftime(self.responses["date_format"])
-                )
-            else:
-                return self.responses["date_not_understood"]
-                
+          if self.booking["departure_datetime"]:
+              self.current_state = "collect_trip_type"
+              return self.responses["date_collected_only"].format(
+                  date=self.booking["departure_datetime"].strftime(self.responses["date_format"])
+              )
+
+          date = self.extract_date(doc, message)
+          if date:
+              self.booking["departure_datetime"] = date
+              self.current_state = "collect_trip_type"
+              return self.responses["date_collected_only"].format(
+                  date=self.booking["departure_datetime"].strftime(self.responses["date_format"])
+              )
+          else:
+              return self.responses["date_not_understood"]
+
         elif self.current_state == "collect_trip_type":
             flight_type = self.extract_flight_type(message)
             if flight_type:
@@ -299,6 +312,10 @@ class DragonTravelBot:
                     self.current_state = "collect_return_date"
                     return self.responses["round_trip_selected"]
                 else:
+                    if self.booking["num_passengers"] is not None:
+                      self.current_state = "collect_seat_class"
+                      return self.responses["passengers_collected"].format(passengers=self.booking["num_passengers"])
+                    
                     self.current_state = "collect_passengers"
                     return self.responses["one_way_selected"]
             else:
@@ -316,14 +333,18 @@ class DragonTravelBot:
                 return self.responses["return_date_not_understood"]
                 
         elif self.current_state == "collect_passengers":
-            passengers = self.extract_number(message)
-            if passengers:
-                self.booking["num_passengers"] = passengers
-                self.current_state = "collect_seat_class"
-                return self.responses["passengers_collected"].format(passengers=passengers)
-            else:
-                return self.responses["passengers_not_understood"]
-                
+          if self.booking["num_passengers"] is not None:
+              self.current_state = "collect_seat_class"
+              return self.responses["passengers_collected"].format(passengers=self.booking["num_passengers"])
+
+          passengers = self.extract_number(message)
+          if passengers:
+              self.booking["num_passengers"] = passengers
+              self.current_state = "collect_seat_class"
+              return self.responses["passengers_collected"].format(passengers=passengers)
+          else:
+              return self.responses["passengers_not_understood"]
+
         elif self.current_state == "collect_seat_class":
             seat_class = self.extract_seat_class(message)
             if seat_class:
@@ -368,7 +389,8 @@ class DragonTravelBot:
         result = {
             "departure": None,
             "destination": None,
-            "date": None
+            "date": None,
+            "passengers": None
         }
         
         # Try to find city names that might be airports
@@ -395,12 +417,20 @@ class DragonTravelBot:
         
         # Extract date
         result["date"] = self.extract_date(doc, message)
-        
+    
+        passengers = self.extract_number(message)
+        if passengers:
+            result["passengers"] = passengers
+            
         return result
     
+    def remove_accents(self, text):
+      """Delete accents."""
+      return ''.join(c for c in unicodedata.normalize('NFD', text) if unicodedata.category(c) != 'Mn')
+
     def text_to_airport_code(self, city_text):
         """Convert a city name text to an airport code"""
-        city_text = city_text.lower().strip()
+        city_text = self.remove_accents(city_text.lower().strip())
         
         # Check if it matches a known airport code directly
         upper_text = city_text.upper()
@@ -409,7 +439,7 @@ class DragonTravelBot:
             
         # Check if it matches or partially matches a city name
         for code, airport_info in airports.items():
-            airport_name = airport_info["name"].lower()
+            airport_name = self.remove_accents(airport_info["name"].lower())
             if city_text == airport_name or city_text in airport_name or airport_name in city_text:
                 return code
                 
@@ -669,29 +699,33 @@ class DragonTravelBot:
         return None
     
     def extract_number(self, message):
-        """Extract a number from text"""
-        # Look for digits
-        match = re.search(r'(\d+)', message)
-        if match:
-            return int(match.group(1))
-            
-        # Number words in English and Spanish
-        number_words = {
-            # English
-            "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
-            "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
-            
-            # Spanish
-            "uno": 1, "un": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
-            "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10
-        }
-        
-        message = message.lower()
-        for word, num in number_words.items():
-            if word in message.split():
-                return num
-                
-        return None
+      """Extract a number from text."""
+      message = message.lower().strip()
+
+      # Buscar números explícitos (dígitos)
+      match = re.search(r'\b(\d+)\b', message)
+      if match:
+          num = int(match.group(1))
+          return num
+
+      # Buscar números en palabras pero evitando falsos positivos como "personas"
+      number_words = {
+          "uno": 1, "un": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
+          "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10,
+          "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+          "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10
+      }
+
+      words = message.split()
+      for i, word in enumerate(words):
+          if word in number_words:
+              # Evitar falsos positivos como "personas"
+              if i + 1 < len(words) and words[i + 1] in ["persona", "personas", "pasajero", "pasajeros", "people", "person"]:
+                  num = number_words[word]
+                  return num
+
+      return None
+
     
     def extract_seat_class(self, message):
         """Extract seat class preference"""
@@ -888,3 +922,15 @@ class DragonTravelBot:
                 "round_trip": "Round-trip",
                 "one_way": "One-way"
             }
+
+# # Function to convert text to speech
+# def text_to_speech(text, lang="en"):
+#     """Convert text to speech and play it"""
+#     # Create a gTTS object with the text and language
+#     tts = gTTS(text=text, lang=lang)
+    
+#     # Save to a temporary file
+#     tts.save("response.mp3")
+    
+#     # Display an audio widget with the response
+#     return Audio("response.mp3", autoplay=True)
