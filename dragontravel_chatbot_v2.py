@@ -8,6 +8,11 @@ from langdetect import detect, DetectorFactory, detect_langs
 import dateparser
 import unicodedata
 
+# Importar los módulos de reconocimiento de voz
+import whisper
+from IPython.display import Audio, display
+from gtts import gTTS
+
 DetectorFactory.seed = 0 
 
 # Simulated database for storage
@@ -917,3 +922,15 @@ class DragonTravelBot:
                 "round_trip": "Round-trip",
                 "one_way": "One-way"
             }
+
+# # Function to convert text to speech
+# def text_to_speech(text, lang="en"):
+#     """Convert text to speech and play it"""
+#     # Create a gTTS object with the text and language
+#     tts = gTTS(text=text, lang=lang)
+    
+#     # Save to a temporary file
+#     tts.save("response.mp3")
+    
+#     # Display an audio widget with the response
+#     return Audio("response.mp3", autoplay=True)
