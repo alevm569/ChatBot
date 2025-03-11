@@ -863,8 +863,6 @@ class DragonTravelBot:
         try:
             model = whisper.load_model("base") 
             result = model.transcribe(audio_path)
-            print("debug", result)
-            print("test 2", result["text"])
             transcription = result["text"]
             
             category = self.categorize_feedback(transcription)
