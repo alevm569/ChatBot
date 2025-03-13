@@ -213,9 +213,12 @@ class DragonTravelBot:
         
         # Detectar idioma
         if not self.language_set:
-            self.detect_language(message)
-            self.language_set = True
-        
+          detected_lang = self.detect_language(message)
+          self.detected_language = detected_lang
+          self.nlp = self.nlp_es if detected_lang == "es" else self.nlp_en
+          self.responses = self.get_responses(detected_lang)
+          self.language_set = True
+            
         # comandos para cambiar el idioma
         if message.strip().lower() == "switch to english" or message.strip().lower() == "english please":
             self.detected_language = "en"
@@ -255,8 +258,8 @@ class DragonTravelBot:
                 else:
                     self.current_state = "collect_date"
                     return self.responses["airports_collected"].format(
-                        dep_airport=self.booking["departure_airport"],
-                        arr_airport=self.booking["arrival_airport"]
+                      dep_airport=self.get_airport_name(self.booking["departure_airport"]),
+                      arr_airport=self.get_airport_name(self.booking["arrival_airport"])
                     )
             else:
                 self.current_state = "collect_departure"
@@ -264,15 +267,17 @@ class DragonTravelBot:
         
         # Handle other conversation states
         return self.handle_conversation_state(message, doc)
-        
+
     def handle_conversation_state(self, message, doc):
         """Handle the conversation based on the current state"""
+        self.responses = self.get_responses(self.detected_language)
+
         if self.current_state == "collect_departure":
             airport = self.extract_airport(doc, message)
             if airport:
                 self.booking["departure_airport"] = airport
                 self.current_state = "collect_arrival"
-                return self.responses["departure_collected"].format(airport=airport)
+                return self.responses["departure_collected"].format(airport=self.get_airport_name(airport))
             else:
                 return self.responses["departure_not_understood"]
                 
@@ -282,8 +287,8 @@ class DragonTravelBot:
                 self.booking["arrival_airport"] = airport
                 self.current_state = "collect_date"
                 return self.responses["arrival_collected"].format(
-                    dep_airport=self.booking["departure_airport"],
-                    arr_airport=airport
+                  dep_airport=self.get_airport_name(self.booking["departure_airport"]),
+                  arr_airport=self.get_airport_name(airport)
                 )
             else:
                 return self.responses["arrival_not_understood"]
@@ -377,6 +382,8 @@ class DragonTravelBot:
                 response = self.responses["booking_confirmed"].format(booking_id=booking_id)
                 self.reset_booking()
                 # return response
+                self.detected_language = self.initial_language
+                self.responses = self.get_responses(self.detected_language)
                 self.current_state = "ask_feedback"
                 return response + "\n" + self.responses["feedback_prompt"]
             elif confirmation == "no":
@@ -386,6 +393,7 @@ class DragonTravelBot:
                 return self.responses["confirmation_not_understood"]
         elif self.current_state == "ask_feedback":
             confirmation = self.extract_confirmation(message)
+            self.responses = self.get_responses(self.initial_language)
             if confirmation == "yes":
                 audio_path = "/content/audio.wav"  # Ruta de ejemplo
                 return self.process_feedback(audio_path)
@@ -397,6 +405,10 @@ class DragonTravelBot:
             self.reset_booking()
             return self.responses["error_restart"]
     
+    def get_airport_name(self, code):
+      """Obtiene el nombre del aeropuerto basado en su código."""
+      return airports.get(code, {}).get("name", code)
+
     def extract_flight_info(self, doc, message):
         """Extract flight information from an initial query using NLP"""
         result = {
@@ -594,7 +606,7 @@ class DragonTravelBot:
           if month:
               return datetime.datetime(year, month, day, 12, 0)  # Asigna correctamente el día
 
-      # Último recurso: usar dateparser
+      # Usar dateparser
       parsed_date = dateparser.parse(date_text, languages=["es", "en"])
       if parsed_date:
           return parsed_date
@@ -646,7 +658,7 @@ class DragonTravelBot:
                     
     #             return datetime.datetime(year, month_num, day, 12, 0)
                 
-    #     return None
+    #     return None 
     def extract_date_with_regex(self, text):
       """Extract date using regex patterns for both MM/DD/YYYY and '8 de junio' formats"""
       text = text.lower().strip()
@@ -694,17 +706,21 @@ class DragonTravelBot:
     def extract_flight_type(self, message):
       """Extract flight type (one-way or round-trip)"""
       message = message.lower()
-      
+
+      if self.detected_language == "es":
+        if "ida y vuelta" in message or "redondo" in message or "regreso" in message:
+            return "round_trip"
+        if "ida" in message or "solo ida" in message or "solo de ida" in message:
+            return "one_way"
+
       # Patterns for one-way in both English and Spanish
       one_way_patterns = [
-          "one way", "one-way", "oneway", "single", 
-          "ida", "sencillo", "solo ida", "solamente ida", "solo de ida"
+          "one way", "one-way", "oneway", "single", "sencillo", "solamente ida"
       ]
       
       # Patterns for round-trip in both English and Spanish
       round_trip_patterns = [
-          "round trip", "round-trip", "roundtrip", "return", 
-          "ida y vuelta", "redondo", "regreso"
+          "round trip", "round-trip", "roundtrip", "return"
       ]
       
       # Check for one-way patterns
@@ -794,8 +810,8 @@ class DragonTravelBot:
     def get_confirmation_message(self):
         """Generate a confirmation message with all booking details"""
         return self.responses["confirmation_message"].format(
-            dep_airport=self.booking['departure_airport'],
-            arr_airport=self.booking['arrival_airport'],
+            dep_airport=self.get_airport_name(self.booking["departure_airport"]),
+            arr_airport=self.get_airport_name(self.booking["arrival_airport"]),
             dep_date=self.booking['departure_datetime'].strftime(self.responses["date_format"]),
             ret_date=self.booking['arrival_datetime'].strftime(self.responses["date_format"]) if self.booking['flight_type'] == "round_trip" and self.booking['arrival_datetime'] else "N/A",
             trip_type=self.responses["round_trip" if self.booking['flight_type'] == "round_trip" else "one_way"],
