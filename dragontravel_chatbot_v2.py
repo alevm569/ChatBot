@@ -12,6 +12,7 @@ import unicodedata
 import whisper
 from IPython.display import Audio, display
 from gtts import gTTS
+from pysentimiento import create_analyzer
 
 DetectorFactory.seed = 0 
 
@@ -69,6 +70,7 @@ airports = {
     "OKC": {"name": "Oklahoma City", "code": "OKC"},
     "OMA": {"name": "Omaha Eppley", "code": "OMA"},
     "GYE": {"name": "Guayaquil", "code": "GYE"},
+    "UIO": {"name": "Quito", "code": "UIO"},
 }
 
 # Airlines for demonstration
@@ -163,9 +165,9 @@ class DragonTravelBot:
                 if lang_code == "es":
                     self.detected_language = "es"
                     self.nlp = self.nlp_es
-                # elif lang_code == "en":
-                #     self.detected_language = "en"
-                #     self.nlp = self.nlp_en
+                elif lang_code == "en":
+                    self.detected_language = "en"
+                    self.nlp = self.nlp_en
                 else:
                     # Si no es español ni inglés, asumimos inglés como fallback
                     self.detected_language = "en"
@@ -368,17 +370,29 @@ class DragonTravelBot:
         elif self.current_state == "confirm_details":
             confirmation = self.extract_confirmation(message)
             if confirmation == "yes":
+                self.initial_language = self.detected_language
                 booking_id = self.save_booking()
+                self.last_booking_id = booking_id 
                 quotation = self.generate_quotation()
                 self.send_email_quotation()
                 response = self.responses["booking_confirmed"].format(booking_id=booking_id)
                 self.reset_booking()
-                return response
+                # return response
+                self.current_state = "ask_feedback"
+                return response + "\n" + self.responses["feedback_prompt"]
             elif confirmation == "no":
                 self.current_state = "greeting"
                 return self.responses["booking_restart"]
             else:
                 return self.responses["confirmation_not_understood"]
+        elif self.current_state == "ask_feedback":
+            confirmation = self.extract_confirmation(message)
+            if confirmation == "yes":
+                audio_path = "/content/audio.wav"  # Ruta de ejemplo
+                return self.process_feedback(audio_path)
+            else:
+                self.current_state = "greeting"
+                return self.responses["feedback_skipped"]
         else:
             # Handle unexpected states
             self.reset_booking()
@@ -679,24 +693,32 @@ class DragonTravelBot:
       return None 
     
     def extract_flight_type(self, message):
-        """Extract flight type (one-way or round-trip)"""
-        message = message.lower()
-        
-        # Patterns for one-way in both English and Spanish
-        one_way_patterns = ["one way", "one-way", "oneway", "single", "ida", "sencillo", "solo ida", "solamente ida"]
-        
-        # Patterns for round-trip in both English and Spanish
-        round_trip_patterns = ["round trip", "round-trip", "roundtrip", "return", "ida y vuelta", "redondo", "regreso"]
-        
-        for pattern in one_way_patterns:
-            if pattern in message:
-                return "one_way"
-                
-        for pattern in round_trip_patterns:
-            if pattern in message:
-                return "round_trip"
-                
-        return None
+      """Extract flight type (one-way or round-trip)"""
+      message = message.lower()
+      
+      # Patterns for one-way in both English and Spanish
+      one_way_patterns = [
+          "one way", "one-way", "oneway", "single", 
+          "ida", "sencillo", "solo ida", "solamente ida", "solo de ida"
+      ]
+      
+      # Patterns for round-trip in both English and Spanish
+      round_trip_patterns = [
+          "round trip", "round-trip", "roundtrip", "return", 
+          "ida y vuelta", "redondo", "regreso"
+      ]
+      
+      # Check for one-way patterns
+      for pattern in round_trip_patterns:
+        if re.search(r"\b" + re.escape(pattern) + r"\b", message):
+            return "round_trip"
+      
+      # Check for one-way patterns
+      for pattern in one_way_patterns:
+        if re.search(r"\b" + re.escape(pattern) + r"\b", message):
+            return "one_way"
+    
+      return None
     
     def extract_number(self, message):
       """Extract a number from text."""
@@ -732,9 +754,9 @@ class DragonTravelBot:
         message = message.lower()
         
         # English and Spanish seat class patterns
-        if any(term in message for term in ["economy", "coach", "economica", "económica", "turista"]):
+        if any(term in message for term in ["economy", "coach", "economica", "económica","economico" , "turista"]):
             return "Economy"
-        elif any(term in message for term in ["business", "ejecutiva", "negocios"]):
+        elif any(term in message for term in ["business", "ejecutiva", "ejecutivo" , "negocios"]):
             return "Business"
         elif any(term in message for term in ["first", "primera"]):
             return "First Class"
@@ -837,7 +859,45 @@ class DragonTravelBot:
         
         # Return success for prototype
         return True
-        
+    def process_feedback(self, audio_path):
+        """Procesa un archivo de audio existente para extraer feedback del cliente"""
+        try:
+            model = whisper.load_model("base") 
+            result = model.transcribe(audio_path)
+            transcription = result["text"]
+            
+            category = self.categorize_feedback(transcription)
+            self.save_feedback(transcription, category)
+            
+            return self.responses["feedback_received"].format(category=category)
+        except Exception as e:
+            print(f"Error processing audio: {e}")
+            return self.responses["feedback_error"]
+
+    def categorize_feedback(self, text):
+        """Clasifica el feedback como queja o felicitación usando pysentimiento"""
+        analyzer = create_analyzer(task="sentiment", lang=self.initial_language)
+        sentiment = analyzer.predict(text).output
+        if sentiment == "NEG":
+          return "Queja"
+        elif sentiment == "POS":
+          return "Felicitación"
+        elif sentiment == "NEU":
+          return "Neutral"
+        else:
+            return "Otro"
+    
+    def save_feedback(self, transcription, category):
+        """Guarda el feedback en la base de datos simulada"""
+        feedback_entry = {
+            "booking_id": self.last_booking_id,
+            "audio_transcription": transcription,
+            "language": self.initial_language,
+            "category": category,
+            "timestamp": datetime.datetime.now()
+        }
+        bookings_db.append(feedback_entry)
+    
     def get_responses(self, language):
         """Get response templates for the specified language"""
         if language == "es":
@@ -874,12 +934,17 @@ class DragonTravelBot:
                                        "Email: {email}\n\n" +
                                        "¿Es correcta esta información?",
                 "confirmation_not_understood": "¿Es correcta esta información? Por favor confirma con sí o no.",
-                "booking_confirmed": "¡Excelente! Tu reserva (ID: {booking_id}) ha sido confirmada. Se ha enviado una cotización a tu correo electrónico. ¡Gracias por elegir DragonTravel!",
+                "booking_confirmed": "¡Excelente! Tu reserva (ID: {booking_id}) ha sido confirmada. Se ha enviado una cotización a tu correo electrónico.",
                 "booking_restart": "Empecemos de nuevo. ¿Desde dónde te gustaría volar?",
                 "error_restart": "Lo siento, algo salió mal. Empecemos de nuevo. ¿Desde dónde te gustaría volar?",
                 "date_format": "%d de %B, %Y",
                 "round_trip": "Ida y vuelta",
-                "one_way": "Solo ida"
+                "one_way": "Solo ida",
+                "feedback_prompt": "¿Quieres dejar algún comentario?",
+                "feedback_skipped": "¡Gracias por elegir DragonTravel!",
+                "feedback_received": "Gracias, recibimos tu comentario",
+                "feedback_not_understood": "No pude reconocer el audio",
+                "feedback_error": "Lo siento, algo salió mal al procesar tu audio"
             }
         else:  # English and fallback
             return {
@@ -915,12 +980,18 @@ class DragonTravelBot:
                                       "Email: {email}\n\n" +
                                       "Is this information correct?",
                 "confirmation_not_understood": "Is this information correct? Please confirm with yes or no.",
-                "booking_confirmed": "Great! Your booking (ID: {booking_id}) has been confirmed. A quotation has been sent to your email. Thank you for choosing DragonTravel!",
+                "booking_confirmed": "Great! Your booking (ID: {booking_id}) has been confirmed. A quotation has been sent to your email.",
                 "booking_restart": "Let's start over. Where would you like to fly from?",
                 "error_restart": "I'm sorry, something went wrong. Let's start over. Where would you like to fly from?",
                 "date_format": "%B %d, %Y",
                 "round_trip": "Round-trip",
-                "one_way": "One-way"
+                "one_way": "One-way",
+                "feedback_prompt": "Do you want give feedback?",
+                "feedback_skipped": "Thank you for choosing DragonTravel!",
+                "feedback_received": "Thanks, we receive your feedback",
+                "feedback_not_understood": "I couldn't understand that audio.",
+                "feedback_error": "I'm sorry, something went wrong."
+
             }
 
 # # Function to convert text to speech
