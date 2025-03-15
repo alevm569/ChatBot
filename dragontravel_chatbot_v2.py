@@ -70,6 +70,7 @@ airports = {
     "OKC": {"name": "Oklahoma City", "code": "OKC"},
     "OMA": {"name": "Omaha Eppley", "code": "OMA"},
     "GYE": {"name": "Guayaquil", "code": "GYE"},
+    "UIO": {"name": "Quito", "code": "UIO"},
 }
 
 # Airlines for demonstration
@@ -374,6 +375,7 @@ class DragonTravelBot:
         elif self.current_state == "confirm_details":
             confirmation = self.extract_confirmation(message)
             if confirmation == "yes":
+                self.initial_language = self.detected_language
                 self.initial_language = self.detected_language
                 booking_id = self.save_booking()
                 self.last_booking_id = booking_id 
@@ -913,6 +915,45 @@ class DragonTravelBot:
         }
         bookings_db.append(feedback_entry)
     
+    def process_feedback(self, audio_path):
+        """Procesa un archivo de audio existente para extraer feedback del cliente"""
+        try:
+            model = whisper.load_model("base") 
+            result = model.transcribe(audio_path)
+            transcription = result["text"]
+            
+            category = self.categorize_feedback(transcription)
+            self.save_feedback(transcription, category)
+            
+            return self.responses["feedback_received"].format(category=category)
+        except Exception as e:
+            print(f"Error processing audio: {e}")
+            return self.responses["feedback_error"]
+
+    def categorize_feedback(self, text):
+        """Clasifica el feedback como queja o felicitación usando pysentimiento"""
+        analyzer = create_analyzer(task="sentiment", lang=self.initial_language)
+        sentiment = analyzer.predict(text).output
+        if sentiment == "NEG":
+          return "Queja"
+        elif sentiment == "POS":
+          return "Felicitación"
+        elif sentiment == "NEU":
+          return "Neutral"
+        else:
+            return "Otro"
+    
+    def save_feedback(self, transcription, category):
+        """Guarda el feedback en la base de datos simulada"""
+        feedback_entry = {
+            "booking_id": self.last_booking_id,
+            "audio_transcription": transcription,
+            "language": self.initial_language,
+            "category": category,
+            "timestamp": datetime.datetime.now()
+        }
+        bookings_db.append(feedback_entry)
+    
     def get_responses(self, language):
         """Get response templates for the specified language"""
         if language == "es":
@@ -959,6 +1000,12 @@ class DragonTravelBot:
                 "feedback_skipped": "¡Gracias por elegir DragonTravel!",
                 "feedback_received": "Gracias, recibimos tu comentario",
                 "feedback_not_understood": "No pude reconocer el audio",
+                "feedback_error": "Lo siento, algo salió mal al procesar tu audio",
+                "one_way": "Solo ida",
+                "feedback_prompt": "¿Quieres dejar algún comentario?",
+                "feedback_skipped": "¡Gracias por elegir DragonTravel!",
+                "feedback_received": "Gracias, recibimos tu comentario",
+                "feedback_not_understood": "No pude reconocer el audio",
                 "feedback_error": "Lo siento, algo salió mal al procesar tu audio"
             }
         else:  # English and fallback
@@ -1000,6 +1047,13 @@ class DragonTravelBot:
                 "error_restart": "I'm sorry, something went wrong. Let's start over. Where would you like to fly from?",
                 "date_format": "%B %d, %Y",
                 "round_trip": "Round-trip",
+                "one_way": "One-way",
+                "feedback_prompt": "Do you want give feedback?",
+                "feedback_skipped": "Thank you for choosing DragonTravel!",
+                "feedback_received": "Thanks, we receive your feedback",
+                "feedback_not_understood": "I couldn't understand that audio.",
+                "feedback_error": "I'm sorry, something went wrong.",
+
                 "one_way": "One-way",
                 "feedback_prompt": "Do you want give feedback?",
                 "feedback_skipped": "Thank you for choosing DragonTravel!",
