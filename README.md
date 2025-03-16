@@ -8,7 +8,6 @@ The relevant libraries you need before running this prototype are:
   # !python -m spacy download es_core_news_md
   # !pip install langdetect
   # !pip install dateparser
-'''
 
 To run it, run the prototype_test.ipynb file to test a text-only conversation, or prototype_sound.ipynb to test an audio-only conversation.
 The main chatbot code is located in the file: dragontravel_chatbot_v3.py
