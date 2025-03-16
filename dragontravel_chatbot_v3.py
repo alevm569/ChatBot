@@ -1,19 +1,15 @@
 import re
 import datetime
 import random
-import json
 import spacy.tokens
-from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
 import spacy
-from langdetect import detect, DetectorFactory, detect_langs
+from langdetect import DetectorFactory, detect_langs
 import dateparser
 import unicodedata
 import locale
 
-# Importar los módulos de reconocimiento de voz
+# Import the speech recognition modules
 import whisper
-from IPython.display import Audio, display
-from gtts import gTTS
 from pysentimiento import create_analyzer
 
 DetectorFactory.seed = 0 
@@ -97,11 +93,7 @@ class DragonTravelBot:
         
     def load_nlp_models(self):
         """Load the necessary NLP models for language understanding"""
-        # Language identification model
-        # self.lang_classifier = pipeline("text-classification", model="papluca/xlm-roberta-base-language-detection")
-        
         # Load spaCy models for English and Spanish
-        # This provides entity recognition, part-of-speech tagging, etc.
         spacy.prefer_gpu()
         try:
             self.nlp_en = spacy.load("en_core_web_md")
@@ -117,7 +109,7 @@ class DragonTravelBot:
         
 
         
-    def reset_booking(self, lang = None):                  #^ Añado lang para mantener coherencia linguistica en caso de reinicio
+    def reset_booking(self, lang = None):                  # Add language to maintain linguistic consistency on reboot
         """Reset the current booking information"""
         self.booking = {
             "num_passengers": None,
@@ -142,11 +134,11 @@ class DragonTravelBot:
         """Detect the language of the input text using langdetect"""
         try:
             lang_probs = detect_langs(text)
-            lang_detected = max(lang_probs, key=lambda x: x.prob)  # Idioma con mayor probabilidad
+            lang_detected = max(lang_probs, key=lambda x: x.prob)  # Language most likely
             lang_code = lang_detected.lang
             confidence = lang_detected.prob
             
-            # Si el idioma detectado es confiable (>70%), lo usamos
+            # If the detected language is reliable (>70%), we use it
             if confidence > 0.7:
                 if lang_code == "es":
                     self.detected_language = "es"
@@ -155,11 +147,11 @@ class DragonTravelBot:
                     self.detected_language = "en"
                     self.nlp = self.nlp_en
                 else:
-                    # Si no es español ni inglés, asumimos inglés como fallback
+                    # If it is neither Spanish nor English, we assume English as a fallback
                     self.detected_language = "en"
                     self.nlp = self.nlp_en
 
-            # Manejo de Spanglish: si detecta inglés y español con valores similares
+            # Spanglish handling: if it detects English and Spanish with similar values
             elif "en" in [l.lang for l in lang_probs] and "es" in [l.lang for l in lang_probs]:
                 self.detected_language = "es" if "es" in [l.lang for l in lang_probs if l.prob > 0.4] else "en"
                 self.nlp = self.nlp_es if self.detected_language == "es" else self.nlp_en
@@ -173,7 +165,7 @@ class DragonTravelBot:
 
         except Exception as e:
             print(f"Language detection error: {e}")
-            return "en"  # Default a inglés en caso de error
+            return "en"  # Default to English in case of error
 
     
     def set_language(self, language):
@@ -192,19 +184,19 @@ class DragonTravelBot:
         if not message.strip():
             return self.responses["empty_message"]
         
-        # Detectar idioma
+        # Detect language
         if not self.language_set:
             detected_lang = self.detect_language(message)
             self.set_language(detected_lang)
             self.language_set = True
             
         
-        #^ Añadir Salir
+        # Add Exit command
         if message.strip().lower() == "exit" or message.strip().lower() == "salir":
             self.reset_booking(lang=self.detected_language)
             return self.responses["quit"]
             
-        # comandos para cambiar el idioma
+        # Commands to change the language
         if message.strip().lower() == "switch to english" or message.strip().lower() == "english please":
             self.detected_language = "en"
             self.nlp = self.nlp_en
@@ -221,7 +213,7 @@ class DragonTravelBot:
         doc = self.nlp(message)
         
         # In the greeting state, try to extract flight info from the initial message
-        #* 1. "greeting"
+        # 1. "greeting"
         previous = None
         if self.current_state == "greeting":
             print(self.responses["welcome"])
@@ -241,9 +233,8 @@ class DragonTravelBot:
             if extracted_info.get("flight_type"):
                 self.booking["flight_type"] = extracted_info["flight_type"]
 
-            # Establecer current state            
+            # Set current state         
             previous = self.determine_next_state()
-            # print(f"DEBUG: {extracted_info = }")
         
         # Handle other conversation states
         response = self.handle_conversation_state(message, doc)
@@ -257,9 +248,7 @@ class DragonTravelBot:
         """Handle the conversation based on the current state"""
         self.responses = self.get_responses(self.detected_language)
 
-        # print(f"DEBUG: {self.current_state =}")
-
-        #* 2. "collect_departure"
+        # 2. "collect_departure"
         if self.current_state == "collect_departure":
             airport = self.extract_airport(doc, message)
             if airport:
@@ -271,7 +260,7 @@ class DragonTravelBot:
                 response = self.responses["departure_not_understood"]
                 return response
 
-        #* 3. "collect_arrival"        
+        # 3. "collect_arrival"        
         elif self.current_state == "collect_arrival":
             airport = self.extract_airport(doc, message)
             if airport:
@@ -286,7 +275,7 @@ class DragonTravelBot:
                 response = self.responses["arrival_not_understood"]
                 return response
         
-        #* 4. "collect_date"
+        # 4. "collect_date"
         elif self.current_state == "collect_date":
             if self.booking["departure_datetime"]:
                 self.current_state = "collect_trip_type"
@@ -307,7 +296,7 @@ class DragonTravelBot:
                 response = self.responses["date_not_understood"]
                 return response
 
-        #* 5. "collect_trip_type"
+        # 5. "collect_trip_type"
         elif self.current_state == "collect_trip_type":
             flight_type = self.extract_flight_type(message)
             if flight_type:
@@ -329,7 +318,7 @@ class DragonTravelBot:
                 response = self.responses["trip_type_not_understood"]
                 return response
         
-        #* 6. "collect_return_date"
+        # 6. "collect_return_date"
         elif self.current_state == "collect_return_date":
             date = self.extract_date(doc, message)
             if date:
@@ -343,7 +332,7 @@ class DragonTravelBot:
                 response = self.responses["return_date_not_understood"]
                 return response
         
-        #* 7. "collect_passangers"
+        # 7. "collect_passangers"
         elif self.current_state == "collect_passengers":
             if self.booking["num_passengers"] is not None:
                 self.current_state = "collect_seat_class"
@@ -360,7 +349,7 @@ class DragonTravelBot:
                 response = self.responses["passengers_not_understood"]
                 return response
 
-        #* 8. "collect_seat class"
+        # 8. "collect_seat class"
         elif self.current_state == "collect_seat_class":
             seat_class = self.extract_seat_class(message)
             if seat_class:
@@ -374,7 +363,7 @@ class DragonTravelBot:
                 response = self.responses["seat_class_not_understood"]
                 return response
         
-        #* 9. "collect_email"
+        # 9. "collect_email"
         elif self.current_state == "collect_email":
             email = self.extract_email(message)
             if email:
@@ -388,10 +377,9 @@ class DragonTravelBot:
                 response = self.responses["email_not_understood"]
                 return response
         
-        #* 10. "confirm_details"
+        # 10. "confirm_details"
         elif self.current_state == "confirm_details":
             confirmation = self.extract_confirmation(message)
-            # print(f"DEBUG: {confirmation = }")
             if confirmation == "yes":
                 self.initial_language = self.detected_language
                 booking_id = self.save_booking()
@@ -410,11 +398,10 @@ class DragonTravelBot:
             else:
                 return self.responses["confirmation_not_understood"]
         
-        #* 11. "ask_feedback"
+        # 11. "ask_feedback"
         elif self.current_state == "ask_feedback":
             self.set_language(self.initial_language)
             confirmation = self.extract_confirmation(message)
-            # self.responses = self.get_responses(self.initial_language)
             if confirmation == "yes":
                 self.current_state = "getting_feedback"
                 return self.responses["feedback_ready"]
@@ -423,20 +410,20 @@ class DragonTravelBot:
                 self.reset_booking(lang=self.detected_language)
                 return self.responses["feedback_skipped"]
         
-        #* 12. "getting_feedback"
+        # 12. "getting_feedback"
         elif self.current_state == "getting_feedback":
-            audio_path = "feedback.mp3"  # Ruta de ejemplo
+            audio_path = "feedback.mp3"  # Example route
             return self.process_feedback(audio_path)
         
         else:
             # Handle unexpected states
-            #^ Envío el parámetro del idioma para mantener coherencia
+            # The language parameter is sent for consistency.
             self.reset_booking(lang=self.detected_language)
             return self.responses["error_restart"]
     
     
     def get_airport_name(self, code):
-      """Obtiene el nombre del aeropuerto basado en su código."""
+      """Gets the name of the airport based on its code."""
       return airports.get(code, {}).get("name", code)
 
     
@@ -477,10 +464,6 @@ class DragonTravelBot:
 
         # Try to extract flight type
         result["flight_type"] = self.extract_flight_type(message)
-    
-        # passengers = self.extract_number(message)
-        # if passengers:
-        #     result["passengers"] = passengers
             
         return result
     
@@ -499,34 +482,34 @@ class DragonTravelBot:
             "collect_departure" : {"en":"Departure:", "es":"Salida:"},
         }
 
-        #  Asumiendo que recolectamos toda la información, el siguiente estado:
+        #  Assuming we collect all the information, the following status:
         self.current_state = "collect_passangers"
 
-        # Verificar si "collect_return_date" procede
+        # Check if "collect_return_date" applies
         if self.booking["flight_type"] == "round_trip" and not self.booking["arrival_datetime"]:
             self.current_state = "collect_return_date"
         elif self.booking["flight_type"] == "round_trip" and self.booking["arrival_datetime"]:
             missing_info.append(f"{summary_actions["collect_return_date"][self.detected_language]} {self.booking['arrival_datetime'].strftime(self.responses['date_format'])}")
 
-        # Verificar si "collect_trip_type" procede
+        # Check if "collect_trip_type" applies
         if not self.booking["flight_type"]:
             self.current_state = "collect_trip_type"
         else:
             missing_info.append(f"{summary_actions["collect_trip_type"][self.detected_language]} {self.booking["flight_type"]}")
         
-        # Verificar si "collect_date" procede
+        # Check if "collect_date" applies
         if not self.booking["departure_datetime"]:
             self.current_state = "collect_date"
         else:
             missing_info.append(f"{summary_actions["collect_date"][self.detected_language]} {self.booking['departure_datetime'].strftime(self.responses['date_format'])}")
         
-        # Verificar si "collect_arrival" procede
+        # Check if "collect_arrival" proceeds
         if not self.booking["arrival_airport"]:
             self.current_state = "collect_arrival"
         else:
             missing_info.append(f"{summary_actions["collect_arrival"][self.detected_language]} {self.get_airport_name(self.booking['arrival_airport'])}")
         
-        # Verificar si "collect_departure" procede
+        # Check if "collect_departure" proceeds
         if not self.booking["departure_airport"]:
             self.current_state = "collect_departure"
         else:
@@ -537,8 +520,6 @@ class DragonTravelBot:
             missing_info.append(f"{self.booking['seat_class'] if self.detected_language == "en" else travel_class_es[self.booking['seat_class']]}")       
         
         # Create a summary of what we've understood so far
-        # if len(missing_info) > 2:
-        #     missing_info[2] = missing_info[2] + "\n"
         summary = ', '.join(missing_info[::-1])
         
         if self.detected_language == "es":
@@ -608,13 +589,13 @@ class DragonTravelBot:
       today = datetime.datetime.now()
       date_text = date_text.lower().strip()
 
-      # Manejo de fechas relativas
+      # Handling relative dates
       if "tomorrow" in date_text or "mañana" in date_text:
           return today + datetime.timedelta(days=1)
       elif "next week" in date_text or "próxima semana" in date_text:
           return today + datetime.timedelta(weeks=1)
 
-      # Diccionario de meses en inglés y español
+      # Dictionary of months in English and Spanish
       months = {
           **{
               "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
@@ -630,18 +611,18 @@ class DragonTravelBot:
           }
       }
 
-      # Expresión regular mejorada para capturar "8 de junio" y similares
+      # Improved regular expression to capture "June 8" and similar
       date_match = re.search(r'(\d{1,2})\s*(?:de\s+)?([a-zA-Z]+)(?:\s+de\s+(\d{4}))?', date_text)
 
       if date_match:
-          day = int(date_match.group(1))  # Día capturado correctamente
-          month_name = date_match.group(2)  # Nombre del mes
-          year = int(date_match.group(3)) if date_match.group(3) else today.year  # Año opcional
+          day = int(date_match.group(1))  # Day captured correctly
+          month_name = date_match.group(2)  # Name of the month
+          year = int(date_match.group(3)) if date_match.group(3) else today.year  # Optional year
 
-          # Buscar el número del mes en el diccionario
+          # Look up the month number in the dictionary
           month = months.get(month_name.lower())
           if month:
-              return datetime.datetime(year, month, day, 12, 0)  # Asigna correctamente el día
+              return datetime.datetime(year, month, day, 12, 0)  # Correctly assign the day
 
       # Usar dateparser
       parsed_date = dateparser.parse(date_text, languages=["es", "en"])
@@ -655,7 +636,7 @@ class DragonTravelBot:
         """Extract date using regex patterns for both MM/DD/YYYY and '8 de junio' formats"""
         text = text.lower().strip()
 
-        # Detectar formato MM/DD/YYYY o DD/MM/YYYY
+        # Detect MM/DD/YYYY or DD/MM/YYYY format
         date_match = re.search(r'(\d{1,2})/(\d{1,2})/(\d{2,4})', text)
         if date_match:
             month = int(date_match.group(1))
@@ -665,20 +646,18 @@ class DragonTravelBot:
                 year += 2000  # Ajuste de año corto (ej. 23 → 2023)
             return datetime.datetime(year, month, day, 12, 0)
 
-        # date_match = re.search(r'(\d{1,2})\s*(?:al\s+(\d{1,2})\s+de\s+)?([a-zA-Z]+)(?:\s+de\s+(\d{4}))?', text)
         date_match = re.search(r'(\d{1,2})\s*(?:al\s+(\d{1,2})\s+de\s+|de\s+)([a-zA-Z]+)(?:\s+de\s+(\d{4}))?', text)
-        # print(f"DEBUG: {date_match = }")
         if date_match:
             if self.current_state == "collect_return_date" and date_match.group(2) is not None:
-                day = int(date_match.group(2))  # Extrae segunda fecha si existe
-                month_name = date_match.group(3)  # Nombre del mes
-                year = int(date_match.group(4)) if date_match.group(4) else datetime.datetime.now().year  # Año opcional
+                day = int(date_match.group(2))  # Extract second date if it exists
+                month_name = date_match.group(3)  # Name of the month
+                year = int(date_match.group(4)) if date_match.group(4) else datetime.datetime.now().year  # Optional year
             else:
-                day = int(date_match.group(1))  # Extrae  días de un solo dígito
-                month_name = date_match.group(3)  # asume el mismo mes
-                year = int(date_match.group(4)) if date_match.group(4) else datetime.datetime.now().year  # Año opcional
+                day = int(date_match.group(1))  # Extract single-digit days
+                month_name = date_match.group(3)  # Takes over the same month
+                year = int(date_match.group(4)) if date_match.group(4) else datetime.datetime.now().year  # Optional year
 
-            # Diccionario de meses en español e inglés
+            # Dictionary of months in Spanish and English
             months = {
                 "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
                 "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12,
@@ -690,11 +669,11 @@ class DragonTravelBot:
                 "ago": 8, "sep": 9, "sept": 9, "oct": 10, "nov": 11, "dic": 12
             }
 
-            month = months.get(month_name.lower())  # Convierte el mes a número
+            month = months.get(month_name.lower())  # Convert month to number
             if month:
                 return datetime.datetime(year, month, day, 12, 0)
 
-        # Usar dateparser, si regex no funciona
+        # Use dateparser, if regex doesn't work
         parsed_date = dateparser.parse(text, languages=["es", "en"])
         if parsed_date:
             return parsed_date
@@ -737,13 +716,13 @@ class DragonTravelBot:
       """Extract a number from text."""
       message = message.lower().strip()
 
-      # Buscar números explícitos (dígitos)
+      # Search for explicit numbers (digits)
       match = re.search(r'\b(\d+)\b', message)
       if match:
           num = int(match.group(1))
           return num
 
-      # Buscar números en palabras pero evitando falsos positivos como "personas"
+      # Search for numbers in words but avoid false positives like "people"
       number_words = {
           "uno": 1, "un": 1, "una": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5,
           "seis": 6, "siete": 7, "ocho": 8, "nueve": 9, "diez": 10,
@@ -754,7 +733,7 @@ class DragonTravelBot:
       words = message.split()
       for i, word in enumerate(words):
           if word in number_words:
-              # Evitar falsos positivos como "personas"
+              # Avoid false positives such as "people"
               if i + 1 < len(words) and words[i + 1] in ["persona", "personas", "pasajero", "pasajeros", "people", "person"]:
                   num = number_words[word]
                   return num
@@ -873,7 +852,7 @@ class DragonTravelBot:
         # Return success for prototype
         return True
     def process_feedback(self, audio_path):
-        """Procesa un archivo de audio existente para extraer feedback del cliente"""
+        """Process an existing audio file to extract customer feedback"""
         try:
             model = whisper.load_model("medium") 
             result = model.transcribe(audio_path)
@@ -891,7 +870,7 @@ class DragonTravelBot:
             return self.responses["feedback_error"]
 
     def categorize_feedback(self, text):
-        """Clasifica el feedback como queja o felicitación usando pysentimiento"""
+        """Classify feedback as a complaint or a compliment using pysentimiento"""
         analyzer = create_analyzer(task="sentiment", lang=self.initial_language)
         sentiment = analyzer.predict(text).output
         if sentiment == "NEG":
@@ -904,7 +883,7 @@ class DragonTravelBot:
             return "Otro"
     
     def save_feedback(self, transcription, category):
-        """Guarda el feedback en la base de datos simulada"""
+        """Save the feedback to the simulated database"""
         feedback_entry = {
             "booking_id": self.last_booking_id,
             "audio_transcription": transcription,
